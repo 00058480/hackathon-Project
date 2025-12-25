@@ -8,6 +8,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -42,6 +44,8 @@ fun BillSplitterScreen(modifier: Modifier = Modifier) {
     var sharedExpenses by remember { mutableStateOf<List<SharedExpense>>(emptyList()) }
     var nextPersonId by remember { mutableStateOf(0) }
     var nextExpenseId by remember { mutableStateOf(0) }
+    var expandedExpenses by remember { mutableStateOf<Set<Int>>(emptySet()) }
+    var expandedPeople by remember { mutableStateOf<Set<Int>>(emptySet()) }
 
     val context = LocalContext.current
     val scrollState = rememberScrollState()
@@ -154,6 +158,9 @@ fun BillSplitterScreen(modifier: Modifier = Modifier) {
         }
 
         sharedExpenses.forEachIndexed { index, expense ->
+            val isExpanded = expandedExpenses.contains(expense.id)
+            val allSelected = people.isNotEmpty() && expense.participants.size == people.size
+            
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp)
@@ -167,11 +174,32 @@ fun BillSplitterScreen(modifier: Modifier = Modifier) {
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "Общий расход ${index + 1}",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Medium
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            IconButton(
+                                onClick = {
+                                    expandedExpenses = if (isExpanded) {
+                                        expandedExpenses - expense.id
+                                    } else {
+                                        expandedExpenses + expense.id
+                                    }
+                                },
+                                modifier = Modifier.size(40.dp)
+                            ) {
+                                Icon(
+                                    if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                    contentDescription = if (isExpanded) "Свернуть" else "Развернуть"
+                                )
+                            }
+                            Text(
+                                text = expense.name.ifEmpty { "Общий расход ${index + 1}" },
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
                         IconButton(
                             onClick = {
                                 sharedExpenses = sharedExpenses.filter { it.id != expense.id }
@@ -185,62 +213,89 @@ fun BillSplitterScreen(modifier: Modifier = Modifier) {
                             )
                         }
                     }
-                    OutlinedTextField(
-                        value = expense.name,
-                        onValueChange = { newName ->
-                            sharedExpenses = sharedExpenses.map {
-                                if (it.id == expense.id) it.copy(name = newName) else it
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Название (чай, сок)") },
-                        placeholder = { Text("Чай") },
-                        singleLine = true
-                    )
-                    OutlinedTextField(
-                        value = expense.amount,
-                        onValueChange = { newValue ->
-                            if (newValue.isEmpty() || newValue.matches(Regex("^\\d+(\\.\\d{0,2})?$"))) {
+                    
+                    if (isExpanded) {
+                        OutlinedTextField(
+                            value = expense.name,
+                            onValueChange = { newName ->
                                 sharedExpenses = sharedExpenses.map {
-                                    if (it.id == expense.id) it.copy(amount = newValue) else it
+                                    if (it.id == expense.id) it.copy(name = newName) else it
                                 }
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Сумма") },
-                        placeholder = { Text("0.00") },
-                        singleLine = true,
-                        suffix = { Text("₸") }
-                    )
-                    if (people.isNotEmpty()) {
-                        Text(
-                            text = "Кто участвует:",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Название (чай, сок)") },
+                            placeholder = { Text("Чай") },
+                            singleLine = true
                         )
-                        people.forEach { person ->
+                        OutlinedTextField(
+                            value = expense.amount,
+                            onValueChange = { newValue ->
+                                if (newValue.isEmpty() || newValue.matches(Regex("^\\d+(\\.\\d{0,2})?$"))) {
+                                    sharedExpenses = sharedExpenses.map {
+                                        if (it.id == expense.id) it.copy(amount = newValue) else it
+                                    }
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Сумма") },
+                            placeholder = { Text("0.00") },
+                            singleLine = true,
+                            suffix = { Text("₸") }
+                        )
+                        if (people.isNotEmpty()) {
+                            Text(
+                                text = "Кто участвует:",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium
+                            )
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Checkbox(
-                                    checked = expense.participants.contains(person.id),
+                                    checked = allSelected,
                                     onCheckedChange = { checked ->
                                         sharedExpenses = sharedExpenses.map {
                                             if (it.id == expense.id) {
                                                 if (checked) {
-                                                    it.copy(participants = it.participants + person.id)
+                                                    it.copy(participants = people.map { p -> p.id }.toSet())
                                                 } else {
-                                                    it.copy(participants = it.participants - person.id)
+                                                    it.copy(participants = emptySet())
                                                 }
                                             } else it
                                         }
                                     }
                                 )
                                 Text(
-                                    text = person.name.ifEmpty { "Человек ${people.indexOf(person) + 1}" },
-                                    modifier = Modifier.padding(start = 8.dp)
+                                    text = "Все",
+                                    modifier = Modifier.padding(start = 8.dp),
+                                    fontWeight = FontWeight.Medium
                                 )
+                            }
+                            people.forEach { person ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Checkbox(
+                                        checked = expense.participants.contains(person.id),
+                                        onCheckedChange = { checked ->
+                                            sharedExpenses = sharedExpenses.map {
+                                                if (it.id == expense.id) {
+                                                    if (checked) {
+                                                        it.copy(participants = it.participants + person.id)
+                                                    } else {
+                                                        it.copy(participants = it.participants - person.id)
+                                                    }
+                                                } else it
+                                            }
+                                        }
+                                    )
+                                    Text(
+                                        text = person.name.ifEmpty { "Человек ${people.indexOf(person) + 1}" },
+                                        modifier = Modifier.padding(start = 8.dp)
+                                    )
+                                }
                             }
                         }
                     }
@@ -275,6 +330,8 @@ fun BillSplitterScreen(modifier: Modifier = Modifier) {
         }
 
         people.forEachIndexed { index, person ->
+            val isExpanded = expandedPeople.contains(person.id)
+            
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp)
@@ -288,11 +345,32 @@ fun BillSplitterScreen(modifier: Modifier = Modifier) {
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "Человек ${index + 1}",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Medium
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            IconButton(
+                                onClick = {
+                                    expandedPeople = if (isExpanded) {
+                                        expandedPeople - person.id
+                                    } else {
+                                        expandedPeople + person.id
+                                    }
+                                },
+                                modifier = Modifier.size(40.dp)
+                            ) {
+                                Icon(
+                                    if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                    contentDescription = if (isExpanded) "Свернуть" else "Развернуть"
+                                )
+                            }
+                            Text(
+                                text = person.name.ifEmpty { "Человек ${index + 1}" },
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
                         IconButton(
                             onClick = {
                                 people = people.filter { it.id != person.id }
@@ -309,33 +387,36 @@ fun BillSplitterScreen(modifier: Modifier = Modifier) {
                             )
                         }
                     }
-                    OutlinedTextField(
-                        value = person.name,
-                        onValueChange = { newName ->
-                            people = people.map {
-                                if (it.id == person.id) it.copy(name = newName) else it
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Имя") },
-                        placeholder = { Text("Введите имя") },
-                        singleLine = true
-                    )
-                    OutlinedTextField(
-                        value = person.personalAmount,
-                        onValueChange = { newValue ->
-                            if (newValue.isEmpty() || newValue.matches(Regex("^\\d+(\\.\\d{0,2})?$"))) {
+                    
+                    if (isExpanded) {
+                        OutlinedTextField(
+                            value = person.name,
+                            onValueChange = { newName ->
                                 people = people.map {
-                                    if (it.id == person.id) it.copy(personalAmount = newValue) else it
+                                    if (it.id == person.id) it.copy(name = newName) else it
                                 }
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Сумма заказа") },
-                        placeholder = { Text("0.00") },
-                        singleLine = true,
-                        suffix = { Text("₸") }
-                    )
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Имя") },
+                            placeholder = { Text("Введите имя") },
+                            singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = person.personalAmount,
+                            onValueChange = { newValue ->
+                                if (newValue.isEmpty() || newValue.matches(Regex("^\\d+(\\.\\d{0,2})?$"))) {
+                                    people = people.map {
+                                        if (it.id == person.id) it.copy(personalAmount = newValue) else it
+                                    }
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Сумма заказа") },
+                            placeholder = { Text("0.00") },
+                            singleLine = true,
+                            suffix = { Text("₸") }
+                        )
+                    }
                 }
             }
         }
