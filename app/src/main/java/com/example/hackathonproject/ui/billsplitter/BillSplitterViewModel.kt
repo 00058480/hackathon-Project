@@ -11,6 +11,8 @@ import com.example.hackathonproject.data.repository.PersonRepository
 import com.example.hackathonproject.domain.BillCalculator
 import com.example.hackathonproject.domain.ParsedItem
 import com.example.hackathonproject.domain.Person
+import com.example.hackathonproject.domain.PersonItem
+import com.example.hackathonproject.domain.ScannedItem
 import com.example.hackathonproject.domain.SharedExpense
 import com.example.hackathonproject.domain.isAmountInput
 import com.example.hackathonproject.domain.toggle
@@ -21,6 +23,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 /** Editable state of the bill currently being split. Survives configuration changes. */
 data class BillUiState(
@@ -28,6 +31,7 @@ data class BillUiState(
     val serviceChargePercent: String = "",
     val people: List<Person> = emptyList(),
     val sharedExpenses: List<SharedExpense> = emptyList(),
+    val scannedItems: List<ScannedItem> = emptyList(),
     val expandedPeople: Set<Int> = emptySet(),
     val expandedExpenses: Set<Int> = emptySet()
 )
@@ -46,6 +50,8 @@ class BillSplitterViewModel(
 
     private var nextPersonId = 0
     private var nextExpenseId = 0
+    private var nextPersonItemId = 0
+    private var nextScannedId = 0
 
     fun setTotalBillAmount(value: String) {
         if (value.isAmountInput()) _uiState.update { it.copy(totalBillAmount = value) }
@@ -58,24 +64,17 @@ class BillSplitterViewModel(
     // --- People -----------------------------------------------------------
 
     fun addPerson(name: String = "") = _uiState.update {
-        it.copy(people = it.people + Person(nextPersonId++, name, ""))
+        it.copy(people = it.people + Person(nextPersonId++, name))
     }
 
     fun addSavedPeople(people: List<PersonEntity>) {
         if (people.isEmpty()) return
-        val additions = people.map { Person(nextPersonId++, it.name, "") }
+        val additions = people.map { Person(nextPersonId++, it.name) }
         _uiState.update { state -> state.copy(people = state.people + additions) }
     }
 
     fun updatePersonName(id: Int, name: String) = _uiState.update { state ->
         state.copy(people = state.people.map { if (it.id == id) it.copy(name = name) else it })
-    }
-
-    fun updatePersonAmount(id: Int, amount: String) {
-        if (!amount.isAmountInput()) return
-        _uiState.update { state ->
-            state.copy(people = state.people.map { if (it.id == id) it.copy(personalAmount = amount) else it })
-        }
     }
 
     fun removePerson(id: Int) = _uiState.update { state ->
@@ -89,10 +88,61 @@ class BillSplitterViewModel(
         it.copy(expandedPeople = it.expandedPeople.toggle(id))
     }
 
+    // --- Per-person items -------------------------------------------------
+
+    fun addPersonItem(personId: Int, name: String = "", amount: String = "", sourceItemId: Int? = null) {
+        val item = PersonItem(nextPersonItemId++, name, amount, sourceItemId)
+        _uiState.update { state ->
+            state.copy(people = state.people.map { if (it.id == personId) it.copy(items = it.items + item) else it })
+        }
+    }
+
+    /** Assigns one unit of a scanned item to a person, copying its name and unit price. */
+    fun addScannedItemToPerson(personId: Int, scannedItemId: Int) {
+        val scanned = _uiState.value.scannedItems.firstOrNull { it.id == scannedItemId } ?: return
+        addPersonItem(personId, scanned.name, scanned.unitPrice.toString(), scanned.id)
+    }
+
+    fun updatePersonItemName(personId: Int, itemId: Int, name: String) = _uiState.update { state ->
+        state.copy(people = state.people.map { person ->
+            if (person.id != personId) person
+            else person.copy(items = person.items.map { if (it.id == itemId) it.copy(name = name) else it })
+        })
+    }
+
+    fun updatePersonItemAmount(personId: Int, itemId: Int, amount: String) {
+        if (!amount.isAmountInput()) return
+        _uiState.update { state ->
+            state.copy(people = state.people.map { person ->
+                if (person.id != personId) person
+                else person.copy(items = person.items.map { if (it.id == itemId) it.copy(amount = amount) else it })
+            })
+        }
+    }
+
+    fun removePersonItem(personId: Int, itemId: Int) = _uiState.update { state ->
+        state.copy(people = state.people.map { person ->
+            if (person.id != personId) person
+            else person.copy(items = person.items.filterNot { it.id == itemId })
+        })
+    }
+
     // --- Shared expenses --------------------------------------------------
 
     fun addSharedExpense() = _uiState.update {
         it.copy(sharedExpenses = it.sharedExpenses + SharedExpense(nextExpenseId++, "", "", emptySet()))
+    }
+
+    /** Adds one unit of a scanned item as a shared expense, expanded so participants can be chosen. */
+    fun addSharedExpenseFromScanned(scannedItemId: Int) {
+        val scanned = _uiState.value.scannedItems.firstOrNull { it.id == scannedItemId } ?: return
+        val expense = SharedExpense(nextExpenseId++, scanned.name, scanned.unitPrice.toString(), emptySet(), scanned.id)
+        _uiState.update {
+            it.copy(
+                sharedExpenses = it.sharedExpenses + expense,
+                expandedExpenses = it.expandedExpenses + expense.id
+            )
+        }
     }
 
     fun updateExpenseName(id: Int, name: String) = _uiState.update { state ->
@@ -134,11 +184,15 @@ class BillSplitterViewModel(
         it.copy(expandedExpenses = it.expandedExpenses.toggle(id))
     }
 
-    /** Imports scanned receipt items as shared expenses (participants chosen later). */
+    /** Imports scanned receipt items into the pool, keeping their quantity and unit price. */
     fun addParsedItems(items: List<ParsedItem>) {
         if (items.isEmpty()) return
-        val additions = items.map { SharedExpense(nextExpenseId++, it.name, it.amount.toString(), emptySet()) }
-        _uiState.update { it.copy(sharedExpenses = it.sharedExpenses + additions) }
+        val additions = items.map { parsed ->
+            val quantity = parsed.quantity.coerceAtLeast(1)
+            val unitPrice = (parsed.amount.toDouble() / quantity).roundToInt()
+            ScannedItem(nextScannedId++, parsed.name, unitPrice, quantity)
+        }
+        _uiState.update { it.copy(scannedItems = it.scannedItems + additions) }
     }
 
     // --- Persistence ------------------------------------------------------

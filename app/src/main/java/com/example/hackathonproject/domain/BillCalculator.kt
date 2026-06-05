@@ -9,7 +9,7 @@ object BillCalculator {
         sharedExpenses: List<SharedExpense>,
         serviceChargePercent: Double
     ): PersonBreakdown {
-        val personal = person.personalAmount.toDoubleOrNull() ?: 0.0
+        val personal = person.items.sumOf { it.amount.toDoubleOrNull() ?: 0.0 }
         val shared = sharedExpenses.sumOf { expense ->
             if (expense.participants.contains(person.id) && expense.participants.isNotEmpty()) {
                 (expense.amount.toDoubleOrNull() ?: 0.0) / expense.participants.size

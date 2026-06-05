@@ -58,7 +58,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.hackathonproject.AppViewModelProvider
 import com.example.hackathonproject.domain.BillCalculator
 import com.example.hackathonproject.domain.Person
+import com.example.hackathonproject.domain.ScannedItem
 import com.example.hackathonproject.domain.SharedExpense
+import com.example.hackathonproject.domain.remainingQuantity
 import com.example.hackathonproject.domain.toggle
 import com.example.hackathonproject.ui.util.formatMoney
 import kotlin.math.abs
@@ -81,6 +83,8 @@ fun BillSplitterScreen(
     var showSavedSheet by remember { mutableStateOf(false) }
     var showSaveDialog by remember { mutableStateOf(false) }
     var saveTitle by remember { mutableStateOf("") }
+    var itemPickerPersonId by remember { mutableStateOf<Int?>(null) }
+    var showSharedPicker by remember { mutableStateOf(false) }
 
     if (showSavedSheet) {
         var selectedIds by remember { mutableStateOf(emptySet<Long>()) }
@@ -157,6 +161,35 @@ fun BillSplitterScreen(
         )
     }
 
+    val pickerPersonId = itemPickerPersonId
+    if (pickerPersonId != null) {
+        ScannedItemPickerSheet(
+            scannedItems = state.scannedItems,
+            people = state.people,
+            sharedExpenses = state.sharedExpenses,
+            onPick = { viewModel.addScannedItemToPerson(pickerPersonId, it.id) },
+            onAddManual = {
+                viewModel.addPersonItem(pickerPersonId)
+                itemPickerPersonId = null
+            },
+            onDismiss = { itemPickerPersonId = null }
+        )
+    }
+
+    if (showSharedPicker) {
+        ScannedItemPickerSheet(
+            scannedItems = state.scannedItems,
+            people = state.people,
+            sharedExpenses = state.sharedExpenses,
+            onPick = { viewModel.addSharedExpenseFromScanned(it.id) },
+            onAddManual = {
+                viewModel.addSharedExpense()
+                showSharedPicker = false
+            },
+            onDismiss = { showSharedPicker = false }
+        )
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -178,6 +211,52 @@ fun BillSplitterScreen(
             Icon(Icons.Default.PhotoCamera, contentDescription = null)
             Spacer(Modifier.width(8.dp))
             Text("Сканировать чек")
+        }
+
+        if (state.scannedItems.isNotEmpty()) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "Позиции из чека",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = "Раскройте человека ниже и добавьте ему позиции.",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    state.scannedItems.forEach { item ->
+                        val remaining = item.remainingQuantity(state.people, state.sharedExpenses)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "${item.name} · ${item.unitPrice}₸",
+                                fontSize = 14.sp,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(
+                                text = if (remaining > 0) "осталось $remaining из ${item.quantity}" else "распределено",
+                                fontSize = 12.sp,
+                                color = if (remaining > 0) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                }
+                            )
+                        }
+                    }
+                }
+            }
         }
 
         // Total bill ------------------------------------------------------
@@ -255,7 +334,10 @@ fun BillSplitterScreen(
                 modifier = Modifier.weight(1f)
             )
             Button(
-                onClick = viewModel::addSharedExpense,
+                onClick = {
+                    val hasPool = state.scannedItems.any { it.remainingQuantity(state.people, state.sharedExpenses) > 0 }
+                    if (hasPool) showSharedPicker = true else viewModel.addSharedExpense()
+                },
                 modifier = Modifier.height(40.dp)
             ) {
                 Icon(Icons.Default.Add, contentDescription = null)
@@ -408,6 +490,7 @@ fun BillSplitterScreen(
 
         state.people.forEachIndexed { index, person ->
             val isExpanded = state.expandedPeople.contains(person.id)
+            val subtotal = person.items.sumOf { it.amount.toDoubleOrNull() ?: 0.0 }
 
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -442,6 +525,15 @@ fun BillSplitterScreen(
                                 modifier = Modifier.weight(1f)
                             )
                         }
+                        if (subtotal > 0) {
+                            Text(
+                                text = "${formatMoney(subtotal)}₸",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(end = 4.dp)
+                            )
+                        }
                         IconButton(
                             onClick = { viewModel.removePerson(person.id) },
                             modifier = Modifier.size(40.dp)
@@ -463,16 +555,51 @@ fun BillSplitterScreen(
                             placeholder = { Text("Введите имя") },
                             singleLine = true
                         )
-                        OutlinedTextField(
-                            value = person.personalAmount,
-                            onValueChange = { viewModel.updatePersonAmount(person.id, it) },
-                            modifier = Modifier.fillMaxWidth(),
-                            label = { Text("Сумма заказа") },
-                            placeholder = { Text("0") },
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            suffix = { Text("₸") }
-                        )
+
+                        person.items.forEach { item ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = item.name,
+                                    onValueChange = { viewModel.updatePersonItemName(person.id, item.id, it) },
+                                    modifier = Modifier.weight(1f),
+                                    label = { Text("Блюдо") },
+                                    placeholder = { Text("Название") },
+                                    singleLine = true
+                                )
+                                OutlinedTextField(
+                                    value = item.amount,
+                                    onValueChange = { viewModel.updatePersonItemAmount(person.id, item.id, it) },
+                                    modifier = Modifier.width(120.dp),
+                                    label = { Text("Сумма") },
+                                    singleLine = true,
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    suffix = { Text("₸") }
+                                )
+                                IconButton(onClick = { viewModel.removePersonItem(person.id, item.id) }) {
+                                    Icon(
+                                        Icons.Default.Delete,
+                                        contentDescription = "Удалить позицию",
+                                        tint = MaterialTheme.colorScheme.error
+                                    )
+                                }
+                            }
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                val hasPool = state.scannedItems.any { it.remainingQuantity(state.people, state.sharedExpenses) > 0 }
+                                if (hasPool) itemPickerPersonId = person.id else viewModel.addPersonItem(person.id)
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Добавить позицию")
+                        }
                     }
                 }
             }
@@ -637,6 +764,83 @@ fun BillSplitterScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
+private fun ScannedItemPickerSheet(
+    scannedItems: List<ScannedItem>,
+    people: List<Person>,
+    sharedExpenses: List<SharedExpense>,
+    onPick: (ScannedItem) -> Unit,
+    onAddManual: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(text = "Добавить из чека", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+
+            val available = scannedItems.filter { it.remainingQuantity(people, sharedExpenses) > 0 }
+            if (available.isEmpty()) {
+                Text(
+                    text = "Все позиции из чека распределены.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 280.dp)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    available.forEach { item ->
+                        val remaining = item.remainingQuantity(people, sharedExpenses)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onPick(item) }
+                                .padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(text = item.name, fontSize = 16.sp)
+                                Text(
+                                    text = "осталось $remaining из ${item.quantity}",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Text(text = "${item.unitPrice}₸", fontWeight = FontWeight.Medium)
+                        }
+                    }
+                }
+            }
+
+            HorizontalDivider()
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onAddManual() }
+                    .padding(vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Default.Add, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Добавить вручную")
+            }
+
+            Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
+                Text("Готово")
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
 private fun SaveBillDialog(
     title: String,
     onTitleChange: (String) -> Unit,
@@ -703,8 +907,11 @@ fun formatShareText(
     people.forEachIndexed { index, person ->
         val breakdown = BillCalculator.breakdown(person, sharedExpenses, serviceCharge)
         sb.append("\n${person.displayName(index)} -- ${formatMoney(breakdown.total)}₸\n")
-        if (breakdown.personalAmount > 0) {
-            sb.append("  Заказ: ${formatMoney(breakdown.personalAmount)}₸\n")
+        person.items.forEach { item ->
+            val amount = item.amount.toDoubleOrNull() ?: 0.0
+            if (amount > 0) {
+                sb.append("  ${item.name.ifBlank { "Позиция" }}: ${formatMoney(amount)}₸\n")
+            }
         }
         if (breakdown.sharedAmount > 0) {
             sb.append("  Общие расходы: ${formatMoney(breakdown.sharedAmount)}₸\n")

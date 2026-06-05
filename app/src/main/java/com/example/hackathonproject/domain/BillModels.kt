@@ -4,7 +4,24 @@ package com.example.hackathonproject.domain
 data class Person(
     val id: Int,
     val name: String,
-    val personalAmount: String
+    val items: List<PersonItem> = emptyList()
+)
+
+/** A single thing a person ordered — a named meal with its price. */
+data class PersonItem(
+    val id: Int,
+    val name: String,
+    val amount: String,
+    /** The [ScannedItem] this came from, so a unit can be returned to the pool when removed. */
+    val sourceItemId: Int? = null
+)
+
+/** An item recognised from a receipt, available to assign to people. */
+data class ScannedItem(
+    val id: Int,
+    val name: String,
+    val unitPrice: Int,
+    val quantity: Int
 )
 
 /** A shared expense (tea, juice, ...) split equally between its [participants]. */
@@ -12,7 +29,9 @@ data class SharedExpense(
     val id: Int,
     val name: String,
     val amount: String,
-    val participants: Set<Int>
+    val participants: Set<Int>,
+    /** The [ScannedItem] this came from, so a unit can be returned to the pool when removed. */
+    val sourceItemId: Int? = null
 )
 
 /** Per-person money breakdown for a bill. */
@@ -22,6 +41,16 @@ data class PersonBreakdown(
     val serviceChargeAmount: Double,
     val total: Double
 )
+
+/** Units of [this] scanned item not yet assigned to a person or a shared expense. */
+fun ScannedItem.remainingQuantity(
+    people: List<Person>,
+    sharedExpenses: List<SharedExpense>
+): Int {
+    val usedByPeople = people.sumOf { person -> person.items.count { it.sourceItemId == id } }
+    val usedByShared = sharedExpenses.count { it.sourceItemId == id }
+    return quantity - usedByPeople - usedByShared
+}
 
 private val amountRegex = Regex("^\\d+$")
 

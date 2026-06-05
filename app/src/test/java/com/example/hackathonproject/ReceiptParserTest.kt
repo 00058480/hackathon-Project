@@ -61,4 +61,31 @@ class ReceiptParserTest {
         assertEquals(4, items.size)
         assertEquals(listOf(7800, 4000, 6000, 170), items.map { it.amount })
     }
+
+    // --- Tolerance to OCR noise (these used to be dropped) -----------------
+
+    @Test
+    fun `captures grouped amount even when the fraction is missing`() {
+        val item = ReceiptParser.parse(listOf("БЕЙТИ КЕБАБ 1 4 000")).single()
+        assertEquals(4000, item.amount)
+        assertEquals(1, item.quantity)
+    }
+
+    @Test
+    fun `tolerates letter O in place of zero in the fraction`() {
+        assertEquals(170, ReceiptParser.parse(listOf("ЛЕПЕШКА 1ШТ 170,О0")).single().amount)
+        assertEquals(170, ReceiptParser.parse(listOf("ЛЕПЕШКА 1ШТ 170,Oo")).single().amount)
+    }
+
+    @Test
+    fun `tolerates a semicolon used instead of a comma`() {
+        assertEquals(2600, ReceiptParser.parse(listOf("СУП ЧЕЧЕВИЧНЫЙ 2 2 600;00")).single().amount)
+    }
+
+    @Test
+    fun `tolerates doubled spaces in the thousands group`() {
+        val item = ReceiptParser.parse(listOf("КОЛА 1Л 5 6  000,00")).single()
+        assertEquals(6000, item.amount)
+        assertEquals(5, item.quantity)
+    }
 }

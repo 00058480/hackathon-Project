@@ -18,24 +18,27 @@ object ReceiptParser {
     // Non-breaking space (U+00A0), used by the receipt as a thousands separator.
     private val nbsp = Char(0xA0)
 
-    // A money amount: grouped thousands ("7 800,00") or a plain run ("7800,00" / "170,00"),
-    // always ending in a 2-digit fraction. Requiring the fraction avoids matching the qty column.
-    private val amountRegex = Regex("(?:\\d{1,3}(?: \\d{3})+|\\d+)[.,]\\d{2}")
+    // A money amount, tolerant to OCR noise:
+    //  - grouped thousands ("7 800") with an OPTIONAL 2-digit fraction, or
+    //  - a plain number that MUST carry a 2-digit fraction (so the quantity column isn't matched).
+    // The fraction separator may be . , or ; (OCR confuses them) and the fraction digits may
+    // include the letter O/о, which OCR reads instead of 0.
+    private val amountRegex = Regex(
+        "(?:\\d{1,3}(?: \\d{3})+(?:[.,;][\\dOoОо]{2})?|\\d+[.,;][\\dOoОо]{2})"
+    )
     private val trailingIntRegex = Regex("(\\d+)\\s*$")
+    private val fractionTail = Regex("[.,;]\\d{2}$")
+    private val whitespace = Regex("\\s+")
 
     fun parse(rows: List<String>): List<ParsedItem> = rows.mapNotNull(::parseRow)
 
     private fun parseRow(row: String): ParsedItem? {
-        val text = row.replace(nbsp, ' ').trim()
+        val text = row.replace(nbsp, ' ').replace(whitespace, " ").trim()
         if (text.isEmpty()) return null
         if (text.contains('%')) return null // skip the service-charge line
 
         val amountMatch = amountRegex.findAll(text).lastOrNull() ?: return null
-        val amount = amountMatch.value
-            .replace(" ", "")
-            .substringBefore(',')
-            .substringBefore('.')
-            .toIntOrNull() ?: return null
+        val amount = parseAmount(amountMatch.value) ?: return null
         if (amount <= 0) return null
 
         val before = text.substring(0, amountMatch.range.first).trim()
@@ -44,5 +47,13 @@ object ReceiptParser {
         val name = (qtyMatch?.let { before.substring(0, it.range.first) } ?: before).trim()
 
         return ParsedItem(name = name.ifBlank { "Позиция" }, quantity = quantity, amount = amount)
+    }
+
+    private fun parseAmount(raw: String): Int? {
+        val digits = raw
+            .replace('O', '0').replace('o', '0').replace('О', '0').replace('о', '0')
+            .replace(" ", "")
+            .replace(fractionTail, "") // drop a trailing 2-digit fraction if present
+        return digits.toIntOrNull()
     }
 }

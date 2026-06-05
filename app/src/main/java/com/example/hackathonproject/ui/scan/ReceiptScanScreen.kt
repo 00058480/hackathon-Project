@@ -20,6 +20,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ImageSearch
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -167,7 +169,7 @@ private fun CenteredMessage(
 private data class EditableItem(
     val name: String,
     val amount: String,
-    val quantity: Int,
+    val quantity: String,
     val include: Boolean
 )
 
@@ -179,14 +181,14 @@ private fun ReviewList(
 ) {
     val items = remember(parsed) {
         mutableStateListOf<EditableItem>().apply {
-            addAll(parsed.map { EditableItem(it.name, it.amount.toString(), it.quantity, true) })
+            addAll(parsed.map { EditableItem(it.name, it.amount.toString(), it.quantity.toString(), true) })
         }
     }
     val selectedCount = items.count { it.include }
 
     Column(modifier = Modifier.fillMaxSize()) {
         Text(
-            text = "Проверьте позиции. Снимите галочки с итогов и поправьте названия при необходимости.",
+            text = "Проверьте позиции: поправьте названия, количество и суммы. Снимите галочки с итогов, добавьте пропущенное снизу.",
             fontSize = 13.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
@@ -201,8 +203,20 @@ private fun ReviewList(
                     item = item,
                     onToggle = { items[index] = items[index].copy(include = it) },
                     onName = { items[index] = items[index].copy(name = it) },
-                    onAmount = { if (it.isAmountInput()) items[index] = items[index].copy(amount = it) }
+                    onQuantity = { if (it.isAmountInput()) items[index] = items[index].copy(quantity = it) },
+                    onAmount = { if (it.isAmountInput()) items[index] = items[index].copy(amount = it) },
+                    onRemove = { items.removeAt(index) }
                 )
+            }
+            item {
+                OutlinedButton(
+                    onClick = { items.add(EditableItem("", "", "1", true)) },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Добавить позицию")
+                }
             }
         }
         Surface(tonalElevation = 3.dp) {
@@ -221,7 +235,11 @@ private fun ReviewList(
                                 if (amount == null || amount <= 0) {
                                     null
                                 } else {
-                                    ParsedItem(editable.name.ifBlank { "Позиция" }, editable.quantity, amount)
+                                    ParsedItem(
+                                        name = editable.name.ifBlank { "Позиция" },
+                                        quantity = editable.quantity.toIntOrNull()?.coerceAtLeast(1) ?: 1,
+                                        amount = amount
+                                    )
                                 }
                             }
                         onImport(result)
@@ -242,36 +260,53 @@ private fun ReviewRow(
     item: EditableItem,
     onToggle: (Boolean) -> Unit,
     onName: (String) -> Unit,
-    onAmount: (String) -> Unit
+    onQuantity: (String) -> Unit,
+    onAmount: (String) -> Unit,
+    onRemove: () -> Unit
 ) {
     Card(shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Checkbox(checked = item.include, onCheckedChange = onToggle)
-            OutlinedTextField(
-                value = item.name,
-                onValueChange = onName,
-                modifier = Modifier.weight(1f),
-                label = { Text("Название") },
-                supportingText = if (item.quantity > 1) {
-                    { Text("количество: ${item.quantity}") }
-                } else {
-                    null
-                },
-                singleLine = true
-            )
-            Spacer(Modifier.width(8.dp))
-            OutlinedTextField(
-                value = item.amount,
-                onValueChange = onAmount,
-                modifier = Modifier.width(120.dp),
-                label = { Text("Сумма") },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                suffix = { Text("₸") }
-            )
+        Column(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = item.include, onCheckedChange = onToggle)
+                OutlinedTextField(
+                    value = item.name,
+                    onValueChange = onName,
+                    modifier = Modifier.weight(1f),
+                    label = { Text("Название") },
+                    singleLine = true
+                )
+                IconButton(onClick = onRemove) {
+                    Icon(
+                        Icons.Default.Delete,
+                        contentDescription = "Удалить",
+                        tint = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 48.dp, top = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedTextField(
+                    value = item.quantity,
+                    onValueChange = onQuantity,
+                    modifier = Modifier.width(96.dp),
+                    label = { Text("Кол-во") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                )
+                OutlinedTextField(
+                    value = item.amount,
+                    onValueChange = onAmount,
+                    modifier = Modifier.weight(1f),
+                    label = { Text("Сумма") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    suffix = { Text("₸") }
+                )
+            }
         }
     }
 }
