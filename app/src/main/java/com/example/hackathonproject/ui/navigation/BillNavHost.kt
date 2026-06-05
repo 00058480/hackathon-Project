@@ -12,6 +12,10 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -22,11 +26,16 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.hackathonproject.ui.billsplitter.BillSplitterScreen
+import com.example.hackathonproject.ui.billsplitter.BillSplitterViewModel
+import com.example.hackathonproject.AppViewModelProvider
+import com.example.hackathonproject.ui.scan.ReceiptScanScreen
 import com.example.hackathonproject.ui.history.BillDetailScreen
 import com.example.hackathonproject.ui.history.HistoryScreen
 import com.example.hackathonproject.ui.people.PeopleScreen
 import com.example.hackathonproject.ui.people.PersonEditScreen
+import com.example.hackathonproject.ui.welcome.WelcomeScreen
 
 private data class TopLevelDestination(
     val route: String,
@@ -42,6 +51,16 @@ private val topLevelDestinations = listOf(
 
 @Composable
 fun BillSplitterApp() {
+    var showWelcome by rememberSaveable { mutableStateOf(true) }
+    if (showWelcome) {
+        WelcomeScreen(onFinished = { showWelcome = false })
+    } else {
+        MainScaffold()
+    }
+}
+
+@Composable
+private fun MainScaffold() {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
@@ -69,7 +88,10 @@ fun BillSplitterApp() {
             modifier = Modifier.padding(padding)
         ) {
             composable(Routes.SPLITTER) {
-                BillSplitterScreen(onBillSaved = { navController.navigateTopLevel(Routes.HISTORY) })
+                BillSplitterScreen(
+                    onBillSaved = { navController.navigateTopLevel(Routes.HISTORY) },
+                    onScanReceipt = { navController.navigate(Routes.SCAN) }
+                )
             }
             composable(Routes.HISTORY) {
                 HistoryScreen(onOpenBill = { navController.navigate(Routes.billDetail(it)) })
@@ -96,6 +118,19 @@ fun BillSplitterApp() {
                 BillDetailScreen(
                     billId = entry.arguments?.getLong("billId") ?: 0L,
                     onBack = { navController.popBackStack() }
+                )
+            }
+            composable(Routes.SCAN) { entry ->
+                // Share the splitter's ViewModel so imported items land on the bill being edited.
+                val splitterEntry = remember(entry) { navController.getBackStackEntry(Routes.SPLITTER) }
+                val billViewModel: BillSplitterViewModel =
+                    viewModel(splitterEntry, factory = AppViewModelProvider.Factory)
+                ReceiptScanScreen(
+                    onBack = { navController.popBackStack() },
+                    onImport = { items ->
+                        billViewModel.addParsedItems(items)
+                        navController.popBackStack()
+                    }
                 )
             }
         }

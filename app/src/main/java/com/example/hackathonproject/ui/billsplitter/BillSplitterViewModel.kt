@@ -9,6 +9,7 @@ import com.example.hackathonproject.data.local.PersonEntity
 import com.example.hackathonproject.data.repository.BillRepository
 import com.example.hackathonproject.data.repository.PersonRepository
 import com.example.hackathonproject.domain.BillCalculator
+import com.example.hackathonproject.domain.ParsedItem
 import com.example.hackathonproject.domain.Person
 import com.example.hackathonproject.domain.SharedExpense
 import com.example.hackathonproject.domain.isAmountInput
@@ -131,6 +132,13 @@ class BillSplitterViewModel(
 
     fun toggleExpenseExpanded(id: Int) = _uiState.update {
         it.copy(expandedExpenses = it.expandedExpenses.toggle(id))
+    }
+
+    /** Imports scanned receipt items as shared expenses (participants chosen later). */
+    fun addParsedItems(items: List<ParsedItem>) {
+        if (items.isEmpty()) return
+        val additions = items.map { SharedExpense(nextExpenseId++, it.name, it.amount.toString(), emptySet()) }
+        _uiState.update { it.copy(sharedExpenses = it.sharedExpenses + additions) }
     }
 
     // --- Persistence ------------------------------------------------------

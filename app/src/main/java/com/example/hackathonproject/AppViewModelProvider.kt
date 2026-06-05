@@ -7,6 +7,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.example.hackathonproject.ui.billsplitter.BillSplitterViewModel
 import com.example.hackathonproject.ui.history.HistoryViewModel
 import com.example.hackathonproject.ui.people.PeopleViewModel
+import com.example.hackathonproject.ui.scan.ReceiptScanViewModel
 
 /** Builds the app's ViewModels by pulling repositories from the [AppContainer]. */
 object AppViewModelProvider {
@@ -22,6 +23,9 @@ object AppViewModelProvider {
         }
         initializer {
             HistoryViewModel(billApp().container.billRepository)
+        }
+        initializer {
+            ReceiptScanViewModel(billApp().applicationContext)
         }
     }
 }

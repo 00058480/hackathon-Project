@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
@@ -69,6 +70,7 @@ private fun SharedExpense.displayName(index: Int): String = name.ifBlank { "Об
 @Composable
 fun BillSplitterScreen(
     onBillSaved: () -> Unit,
+    onScanReceipt: () -> Unit,
     viewModel: BillSplitterViewModel = viewModel(factory = AppViewModelProvider.Factory)
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -168,6 +170,15 @@ fun BillSplitterScreen(
             fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(bottom = 8.dp)
         )
+
+        OutlinedButton(
+            onClick = onScanReceipt,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(Icons.Default.PhotoCamera, contentDescription = null)
+            Spacer(Modifier.width(8.dp))
+            Text("Сканировать чек")
+        }
 
         // Total bill ------------------------------------------------------
         Card(

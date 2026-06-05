@@ -4,6 +4,7 @@ object Routes {
     const val SPLITTER = "splitter"
     const val HISTORY = "history"
     const val PEOPLE = "people"
+    const val SCAN = "scan"
     const val PERSON_EDIT = "person_edit/{personId}"
     const val BILL_DETAIL = "bill_detail/{billId}"
 
