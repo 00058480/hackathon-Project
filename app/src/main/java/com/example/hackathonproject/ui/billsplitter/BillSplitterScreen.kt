@@ -1,57 +1,162 @@
-package com.example.hackathonproject
+package com.example.hackathonproject.ui.billsplitter
 
 import android.content.Intent
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.hackathonproject.ui.theme.HackathonProjectTheme
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.hackathonproject.AppViewModelProvider
+import com.example.hackathonproject.domain.BillCalculator
+import com.example.hackathonproject.domain.Person
+import com.example.hackathonproject.domain.SharedExpense
+import com.example.hackathonproject.domain.toggle
+import com.example.hackathonproject.ui.util.formatMoney
+import kotlin.math.abs
 
-data class Person(
-    val id: Int,
-    val name: String,
-    val personalAmount: String
-)
-
-data class SharedExpense(
-    val id: Int,
-    val name: String,
-    val amount: String,
-    val participants: Set<Int>
-)
+private fun Person.displayName(index: Int): String = name.ifBlank { "Человек ${index + 1}" }
+private fun SharedExpense.displayName(index: Int): String = name.ifBlank { "Общий расход ${index + 1}" }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BillSplitterScreen(modifier: Modifier = Modifier) {
-    var totalBillAmount by remember { mutableStateOf("") }
-    var serviceChargePercent by remember { mutableStateOf("") }
-    var people by remember { mutableStateOf<List<Person>>(emptyList()) }
-    var sharedExpenses by remember { mutableStateOf<List<SharedExpense>>(emptyList()) }
-    var nextPersonId by remember { mutableStateOf(0) }
-    var nextExpenseId by remember { mutableStateOf(0) }
-    var expandedExpenses by remember { mutableStateOf<Set<Int>>(emptySet()) }
-    var expandedPeople by remember { mutableStateOf<Set<Int>>(emptySet()) }
-
+fun BillSplitterScreen(
+    onBillSaved: () -> Unit,
+    viewModel: BillSplitterViewModel = viewModel(factory = AppViewModelProvider.Factory)
+) {
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val savedPeople by viewModel.savedPeople.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val scrollState = rememberScrollState()
 
+    var showSavedSheet by remember { mutableStateOf(false) }
+    var showSaveDialog by remember { mutableStateOf(false) }
+    var saveTitle by remember { mutableStateOf("") }
+
+    if (showSavedSheet) {
+        var selectedIds by remember { mutableStateOf(emptySet<Long>()) }
+        ModalBottomSheet(onDismissRequest = { showSavedSheet = false }) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
+                    .padding(bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = "Сохранённые люди",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                if (savedPeople.isEmpty()) {
+                    Text(
+                        text = "Пока никого. Сохранённые люди появятся здесь после первого счёта или со вкладки «Люди».",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 320.dp)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        savedPeople.forEach { person ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { selectedIds = selectedIds.toggle(person.id) }
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Checkbox(
+                                    checked = selectedIds.contains(person.id),
+                                    onCheckedChange = { selectedIds = selectedIds.toggle(person.id) }
+                                )
+                                Text(
+                                    text = person.name,
+                                    fontSize = 16.sp,
+                                    modifier = Modifier.padding(start = 8.dp)
+                                )
+                            }
+                        }
+                    }
+                    Button(
+                        onClick = {
+                            viewModel.addSavedPeople(savedPeople.filter { selectedIds.contains(it.id) })
+                            showSavedSheet = false
+                        },
+                        enabled = selectedIds.isNotEmpty(),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(if (selectedIds.isEmpty()) "Добавить" else "Добавить (${selectedIds.size})")
+                    }
+                }
+            }
+        }
+    }
+
+    if (showSaveDialog) {
+        SaveBillDialog(
+            title = saveTitle,
+            onTitleChange = { saveTitle = it },
+            onConfirm = {
+                viewModel.saveBill(saveTitle) { onBillSaved() }
+                showSaveDialog = false
+                saveTitle = ""
+            },
+            onDismiss = { showSaveDialog = false }
+        )
+    }
+
     Column(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxSize()
             .padding(16.dp)
             .verticalScroll(scrollState),
@@ -64,6 +169,7 @@ fun BillSplitterScreen(modifier: Modifier = Modifier) {
             modifier = Modifier.padding(bottom = 8.dp)
         )
 
+        // Total bill ------------------------------------------------------
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(16.dp),
@@ -82,21 +188,19 @@ fun BillSplitterScreen(modifier: Modifier = Modifier) {
                     color = MaterialTheme.colorScheme.onPrimaryContainer
                 )
                 OutlinedTextField(
-                    value = totalBillAmount,
-                    onValueChange = { newValue ->
-                        if (newValue.isEmpty() || newValue.matches(Regex("^\\d+(\\.\\d{0,2})?$"))) {
-                            totalBillAmount = newValue
-                        }
-                    },
+                    value = state.totalBillAmount,
+                    onValueChange = viewModel::setTotalBillAmount,
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text("Сумма") },
-                    placeholder = { Text("0.00") },
+                    placeholder = { Text("0") },
                     singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     suffix = { Text("₸") }
                 )
             }
         }
 
+        // Service charge --------------------------------------------------
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(16.dp),
@@ -115,21 +219,19 @@ fun BillSplitterScreen(modifier: Modifier = Modifier) {
                     color = MaterialTheme.colorScheme.onSecondaryContainer
                 )
                 OutlinedTextField(
-                    value = serviceChargePercent,
-                    onValueChange = { newValue ->
-                        if (newValue.isEmpty() || newValue.matches(Regex("^\\d+(\\.\\d{0,2})?$"))) {
-                            serviceChargePercent = newValue
-                        }
-                    },
+                    value = state.serviceChargePercent,
+                    onValueChange = viewModel::setServiceCharge,
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text("Процент") },
                     placeholder = { Text("10") },
                     singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     suffix = { Text("%") }
                 )
             }
         }
 
+        // Shared expenses -------------------------------------------------
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -138,17 +240,11 @@ fun BillSplitterScreen(modifier: Modifier = Modifier) {
             Text(
                 text = "Общие расходы (чай, сок)",
                 fontSize = 20.sp,
-                fontWeight = FontWeight.SemiBold
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f)
             )
             Button(
-                onClick = {
-                    sharedExpenses = sharedExpenses + SharedExpense(
-                        id = nextExpenseId++,
-                        name = "",
-                        amount = "",
-                        participants = emptySet()
-                    )
-                },
+                onClick = viewModel::addSharedExpense,
                 modifier = Modifier.height(40.dp)
             ) {
                 Icon(Icons.Default.Add, contentDescription = null)
@@ -157,10 +253,10 @@ fun BillSplitterScreen(modifier: Modifier = Modifier) {
             }
         }
 
-        sharedExpenses.forEachIndexed { index, expense ->
-            val isExpanded = expandedExpenses.contains(expense.id)
-            val allSelected = people.isNotEmpty() && expense.participants.size == people.size
-            
+        state.sharedExpenses.forEachIndexed { index, expense ->
+            val isExpanded = state.expandedExpenses.contains(expense.id)
+            val allSelected = state.people.isNotEmpty() && expense.participants.size == state.people.size
+
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp)
@@ -179,13 +275,7 @@ fun BillSplitterScreen(modifier: Modifier = Modifier) {
                             modifier = Modifier.weight(1f)
                         ) {
                             IconButton(
-                                onClick = {
-                                    expandedExpenses = if (isExpanded) {
-                                        expandedExpenses - expense.id
-                                    } else {
-                                        expandedExpenses + expense.id
-                                    }
-                                },
+                                onClick = { viewModel.toggleExpenseExpanded(expense.id) },
                                 modifier = Modifier.size(40.dp)
                             ) {
                                 Icon(
@@ -194,16 +284,14 @@ fun BillSplitterScreen(modifier: Modifier = Modifier) {
                                 )
                             }
                             Text(
-                                text = expense.name.ifEmpty { "Общий расход ${index + 1}" },
+                                text = expense.displayName(index),
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.Medium,
                                 modifier = Modifier.weight(1f)
                             )
                         }
                         IconButton(
-                            onClick = {
-                                sharedExpenses = sharedExpenses.filter { it.id != expense.id }
-                            },
+                            onClick = { viewModel.removeExpense(expense.id) },
                             modifier = Modifier.size(40.dp)
                         ) {
                             Icon(
@@ -213,15 +301,11 @@ fun BillSplitterScreen(modifier: Modifier = Modifier) {
                             )
                         }
                     }
-                    
+
                     if (isExpanded) {
                         OutlinedTextField(
                             value = expense.name,
-                            onValueChange = { newName ->
-                                sharedExpenses = sharedExpenses.map {
-                                    if (it.id == expense.id) it.copy(name = newName) else it
-                                }
-                            },
+                            onValueChange = { viewModel.updateExpenseName(expense.id, it) },
                             modifier = Modifier.fillMaxWidth(),
                             label = { Text("Название (чай, сок)") },
                             placeholder = { Text("Чай") },
@@ -229,20 +313,15 @@ fun BillSplitterScreen(modifier: Modifier = Modifier) {
                         )
                         OutlinedTextField(
                             value = expense.amount,
-                            onValueChange = { newValue ->
-                                if (newValue.isEmpty() || newValue.matches(Regex("^\\d+(\\.\\d{0,2})?$"))) {
-                                    sharedExpenses = sharedExpenses.map {
-                                        if (it.id == expense.id) it.copy(amount = newValue) else it
-                                    }
-                                }
-                            },
+                            onValueChange = { viewModel.updateExpenseAmount(expense.id, it) },
                             modifier = Modifier.fillMaxWidth(),
                             label = { Text("Сумма") },
-                            placeholder = { Text("0.00") },
+                            placeholder = { Text("0") },
                             singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             suffix = { Text("₸") }
                         )
-                        if (people.isNotEmpty()) {
+                        if (state.people.isNotEmpty()) {
                             Text(
                                 text = "Кто участвует:",
                                 fontSize = 14.sp,
@@ -254,17 +333,7 @@ fun BillSplitterScreen(modifier: Modifier = Modifier) {
                             ) {
                                 Checkbox(
                                     checked = allSelected,
-                                    onCheckedChange = { checked ->
-                                        sharedExpenses = sharedExpenses.map {
-                                            if (it.id == expense.id) {
-                                                if (checked) {
-                                                    it.copy(participants = people.map { p -> p.id }.toSet())
-                                                } else {
-                                                    it.copy(participants = emptySet())
-                                                }
-                                            } else it
-                                        }
-                                    }
+                                    onCheckedChange = { viewModel.setAllParticipants(expense.id, it) }
                                 )
                                 Text(
                                     text = "Все",
@@ -272,27 +341,19 @@ fun BillSplitterScreen(modifier: Modifier = Modifier) {
                                     fontWeight = FontWeight.Medium
                                 )
                             }
-                            people.forEach { person ->
+                            state.people.forEachIndexed { personIndex, person ->
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Checkbox(
                                         checked = expense.participants.contains(person.id),
-                                        onCheckedChange = { checked ->
-                                            sharedExpenses = sharedExpenses.map {
-                                                if (it.id == expense.id) {
-                                                    if (checked) {
-                                                        it.copy(participants = it.participants + person.id)
-                                                    } else {
-                                                        it.copy(participants = it.participants - person.id)
-                                                    }
-                                                } else it
-                                            }
+                                        onCheckedChange = {
+                                            viewModel.toggleExpenseParticipant(expense.id, person.id, it)
                                         }
                                     )
                                     Text(
-                                        text = person.name.ifEmpty { "Человек ${people.indexOf(person) + 1}" },
+                                        text = person.displayName(personIndex),
                                         modifier = Modifier.padding(start = 8.dp)
                                     )
                                 }
@@ -303,6 +364,7 @@ fun BillSplitterScreen(modifier: Modifier = Modifier) {
             }
         }
 
+        // People ----------------------------------------------------------
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -311,16 +373,11 @@ fun BillSplitterScreen(modifier: Modifier = Modifier) {
             Text(
                 text = "Люди и их заказы",
                 fontSize = 20.sp,
-                fontWeight = FontWeight.SemiBold
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f)
             )
             Button(
-                onClick = {
-                    people = people + Person(
-                        id = nextPersonId++,
-                        name = "",
-                        personalAmount = ""
-                    )
-                },
+                onClick = { viewModel.addPerson() },
                 modifier = Modifier.height(40.dp)
             ) {
                 Icon(Icons.Default.Add, contentDescription = null)
@@ -329,9 +386,18 @@ fun BillSplitterScreen(modifier: Modifier = Modifier) {
             }
         }
 
-        people.forEachIndexed { index, person ->
-            val isExpanded = expandedPeople.contains(person.id)
-            
+        OutlinedButton(
+            onClick = { showSavedSheet = true },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(Icons.Default.PersonAdd, contentDescription = null)
+            Spacer(Modifier.width(8.dp))
+            Text("Добавить из сохранённых")
+        }
+
+        state.people.forEachIndexed { index, person ->
+            val isExpanded = state.expandedPeople.contains(person.id)
+
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp)
@@ -350,13 +416,7 @@ fun BillSplitterScreen(modifier: Modifier = Modifier) {
                             modifier = Modifier.weight(1f)
                         ) {
                             IconButton(
-                                onClick = {
-                                    expandedPeople = if (isExpanded) {
-                                        expandedPeople - person.id
-                                    } else {
-                                        expandedPeople + person.id
-                                    }
-                                },
+                                onClick = { viewModel.togglePersonExpanded(person.id) },
                                 modifier = Modifier.size(40.dp)
                             ) {
                                 Icon(
@@ -365,19 +425,14 @@ fun BillSplitterScreen(modifier: Modifier = Modifier) {
                                 )
                             }
                             Text(
-                                text = person.name.ifEmpty { "Человек ${index + 1}" },
+                                text = person.displayName(index),
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.Medium,
                                 modifier = Modifier.weight(1f)
                             )
                         }
                         IconButton(
-                            onClick = {
-                                people = people.filter { it.id != person.id }
-                                sharedExpenses = sharedExpenses.map { expense ->
-                                    expense.copy(participants = expense.participants - person.id)
-                                }
-                            },
+                            onClick = { viewModel.removePerson(person.id) },
                             modifier = Modifier.size(40.dp)
                         ) {
                             Icon(
@@ -387,15 +442,11 @@ fun BillSplitterScreen(modifier: Modifier = Modifier) {
                             )
                         }
                     }
-                    
+
                     if (isExpanded) {
                         OutlinedTextField(
                             value = person.name,
-                            onValueChange = { newName ->
-                                people = people.map {
-                                    if (it.id == person.id) it.copy(name = newName) else it
-                                }
-                            },
+                            onValueChange = { viewModel.updatePersonName(person.id, it) },
                             modifier = Modifier.fillMaxWidth(),
                             label = { Text("Имя") },
                             placeholder = { Text("Введите имя") },
@@ -403,17 +454,12 @@ fun BillSplitterScreen(modifier: Modifier = Modifier) {
                         )
                         OutlinedTextField(
                             value = person.personalAmount,
-                            onValueChange = { newValue ->
-                                if (newValue.isEmpty() || newValue.matches(Regex("^\\d+(\\.\\d{0,2})?$"))) {
-                                    people = people.map {
-                                        if (it.id == person.id) it.copy(personalAmount = newValue) else it
-                                    }
-                                }
-                            },
+                            onValueChange = { viewModel.updatePersonAmount(person.id, it) },
                             modifier = Modifier.fillMaxWidth(),
                             label = { Text("Сумма заказа") },
-                            placeholder = { Text("0.00") },
+                            placeholder = { Text("0") },
                             singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             suffix = { Text("₸") }
                         )
                     }
@@ -421,29 +467,15 @@ fun BillSplitterScreen(modifier: Modifier = Modifier) {
             }
         }
 
-        if (totalBillAmount.isNotEmpty() && people.isNotEmpty()) {
-            val totalBillValue = totalBillAmount.toDoubleOrNull() ?: 0.0
-            val serviceCharge = serviceChargePercent.toDoubleOrNull() ?: 0.0
-            
-            val totalPeopleAmounts = people.sumOf { person ->
-                val personalAmount = person.personalAmount.toDoubleOrNull() ?: 0.0
-                
-                var sharedExpensesTotal = 0.0
-                sharedExpenses.forEach { expense ->
-                    if (expense.participants.contains(person.id) && expense.participants.isNotEmpty()) {
-                        val expenseAmount = expense.amount.toDoubleOrNull() ?: 0.0
-                        sharedExpensesTotal += expenseAmount / expense.participants.size
-                    }
-                }
-                
-                val subtotal = personalAmount + sharedExpensesTotal
-                val serviceChargeAmount = subtotal * serviceCharge / 100.0
-                subtotal + serviceChargeAmount
-            }
-            
+        // Remaining amount ------------------------------------------------
+        if (state.totalBillAmount.isNotEmpty() && state.people.isNotEmpty()) {
+            val totalBillValue = state.totalBillAmount.toDoubleOrNull() ?: 0.0
+            val serviceCharge = state.serviceChargePercent.toDoubleOrNull() ?: 0.0
+            val totalPeopleAmounts =
+                BillCalculator.grandTotal(state.people, state.sharedExpenses, serviceCharge)
             val remainingAmount = totalBillValue - totalPeopleAmounts
 
-            if (remainingAmount != 0.0) {
+            if (abs(remainingAmount) > 0.01) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
@@ -462,7 +494,7 @@ fun BillSplitterScreen(modifier: Modifier = Modifier) {
                             color = MaterialTheme.colorScheme.onErrorContainer
                         )
                         Text(
-                            text = "${String.format("%.2f", remainingAmount)}₸",
+                            text = "${formatMoney(remainingAmount)}₸",
                             fontSize = 24.sp,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onErrorContainer
@@ -479,7 +511,8 @@ fun BillSplitterScreen(modifier: Modifier = Modifier) {
             }
         }
 
-        if (people.isNotEmpty()) {
+        // Totals ----------------------------------------------------------
+        if (state.people.isNotEmpty()) {
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
             Card(
@@ -493,24 +526,32 @@ fun BillSplitterScreen(modifier: Modifier = Modifier) {
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
+                    Text(
+                        text = "Итоги",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer
+                    )
+
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text(
-                            text = "Итоги",
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onTertiaryContainer
-                        )
+                        FilledTonalButton(
+                            onClick = { showSaveDialog = true },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(Icons.Default.Save, contentDescription = null)
+                            Spacer(Modifier.width(4.dp))
+                            Text("Сохранить")
+                        }
                         Button(
                             onClick = {
                                 val shareText = formatShareText(
-                                    totalBillAmount,
-                                    serviceChargePercent,
-                                    people,
-                                    sharedExpenses
+                                    state.totalBillAmount,
+                                    state.serviceChargePercent,
+                                    state.people,
+                                    state.sharedExpenses
                                 )
                                 val intent = Intent(Intent.ACTION_SEND).apply {
                                     type = "text/plain"
@@ -518,7 +559,7 @@ fun BillSplitterScreen(modifier: Modifier = Modifier) {
                                 }
                                 context.startActivity(Intent.createChooser(intent, "Поделиться итогами"))
                             },
-                            modifier = Modifier.height(40.dp)
+                            modifier = Modifier.weight(1f)
                         ) {
                             Icon(Icons.Default.Share, contentDescription = null)
                             Spacer(Modifier.width(4.dp))
@@ -526,22 +567,11 @@ fun BillSplitterScreen(modifier: Modifier = Modifier) {
                         }
                     }
 
-                    val serviceCharge = serviceChargePercent.toDoubleOrNull() ?: 0.0
+                    val serviceCharge = state.serviceChargePercent.toDoubleOrNull() ?: 0.0
 
-                    people.forEach { person ->
-                        val personalAmount = person.personalAmount.toDoubleOrNull() ?: 0.0
-                        
-                        var sharedExpensesTotal = 0.0
-                        sharedExpenses.forEach { expense ->
-                            if (expense.participants.contains(person.id) && expense.participants.isNotEmpty()) {
-                                val expenseAmount = expense.amount.toDoubleOrNull() ?: 0.0
-                                sharedExpensesTotal += expenseAmount / expense.participants.size
-                            }
-                        }
-
-                        val subtotal = personalAmount + sharedExpensesTotal
-                        val serviceChargeAmount = subtotal * serviceCharge / 100.0
-                        val total = subtotal + serviceChargeAmount
+                    state.people.forEachIndexed { index, person ->
+                        val breakdown =
+                            BillCalculator.breakdown(person, state.sharedExpenses, serviceCharge)
 
                         Column(modifier = Modifier.fillMaxWidth()) {
                             Row(
@@ -550,41 +580,41 @@ fun BillSplitterScreen(modifier: Modifier = Modifier) {
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = person.name.ifEmpty { "Человек ${people.indexOf(person) + 1}" },
+                                    text = person.displayName(index),
                                     fontSize = 18.sp,
                                     fontWeight = FontWeight.Bold
                                 )
                                 Text(
-                                    text = "${String.format("%.2f", total)}₸",
+                                    text = "${formatMoney(breakdown.total)}₸",
                                     fontSize = 20.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.primary
                                 )
                             }
                             Spacer(modifier = Modifier.height(8.dp))
-                            if (personalAmount > 0) {
+                            if (breakdown.personalAmount > 0) {
                                 Text(
-                                    text = "Заказ: ${String.format("%.2f", personalAmount)}₸",
+                                    text = "Заказ: ${formatMoney(breakdown.personalAmount)}₸",
                                     fontSize = 14.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
-                            if (sharedExpensesTotal > 0) {
+                            if (breakdown.sharedAmount > 0) {
                                 Text(
-                                    text = "Общие расходы: ${String.format("%.2f", sharedExpensesTotal)}₸",
+                                    text = "Общие расходы: ${formatMoney(breakdown.sharedAmount)}₸",
                                     fontSize = 14.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
-                            if (serviceChargeAmount > 0) {
+                            if (breakdown.serviceChargeAmount > 0) {
                                 Text(
-                                    text = "Обслуживание: ${String.format("%.2f", serviceChargeAmount)}₸",
+                                    text = "Обслуживание: ${formatMoney(breakdown.serviceChargeAmount)}₸",
                                     fontSize = 14.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
-                        if (person != people.last()) {
+                        if (index != state.people.lastIndex) {
                             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                         }
                     }
@@ -594,6 +624,32 @@ fun BillSplitterScreen(modifier: Modifier = Modifier) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SaveBillDialog(
+    title: String,
+    onTitleChange: (String) -> Unit,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Сохранить счёт") },
+        text = {
+            OutlinedTextField(
+                value = title,
+                onValueChange = onTitleChange,
+                label = { Text("Название") },
+                placeholder = { Text("Например: Ужин в кафе") },
+                singleLine = true
+            )
+        },
+        confirmButton = { TextButton(onClick = onConfirm) { Text("Сохранить") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } }
+    )
+}
+
+/** Builds the plain-text summary shared via the system share sheet. */
 fun formatShareText(
     totalBillAmount: String,
     serviceChargePercent: String,
@@ -602,106 +658,58 @@ fun formatShareText(
 ): String {
     val serviceCharge = serviceChargePercent.toDoubleOrNull() ?: 0.0
     val totalBillValue = totalBillAmount.toDoubleOrNull() ?: 0.0
-    
+
     val sb = StringBuilder()
     sb.append("💰 Разделение счета\n")
     sb.append("═══════════════════\n\n")
-    
+
     if (totalBillAmount.isNotEmpty()) {
-        sb.append("📋 Общая сумма чека: ${String.format("%.2f", totalBillValue)}₸\n")
+        sb.append("📋 Общая сумма чека: ${formatMoney(totalBillValue)}₸\n")
     }
-    
     if (serviceChargePercent.isNotEmpty() && serviceCharge > 0) {
-        sb.append("💼 Процент обслуживания: ${String.format("%.1f", serviceCharge)}%\n")
+        sb.append("💼 Процент обслуживания: ${String.format(java.util.Locale.US, "%.1f", serviceCharge)}%\n")
     }
-    
+
     if (sharedExpenses.isNotEmpty()) {
         sb.append("\n🍵 Общие расходы:\n")
-        sharedExpenses.forEach { expense ->
+        sharedExpenses.forEachIndexed { index, expense ->
             val amount = expense.amount.toDoubleOrNull() ?: 0.0
             if (amount > 0) {
                 val participants = people.filter { expense.participants.contains(it.id) }
                 val participantNames = if (participants.isNotEmpty()) {
-                    participants.joinToString(", ") { it.name.ifEmpty { "Человек ${people.indexOf(it) + 1}" } }
+                    participants.joinToString(", ") { it.displayName(people.indexOf(it)) }
                 } else {
                     "Не выбраны"
                 }
-                sb.append("  • ${expense.name.ifEmpty { "Общий расход" }}: ${String.format("%.2f", amount)}₸ (${participantNames})\n")
+                sb.append("  • ${expense.displayName(index)}: ${formatMoney(amount)}₸ ($participantNames)\n")
             }
         }
     }
-    
+
     sb.append("\n👥 Итоги по людям:\n")
     sb.append("─────────────────────\n")
-    
-    people.forEach { person ->
-        val personalAmount = person.personalAmount.toDoubleOrNull() ?: 0.0
-        
-        var sharedExpensesTotal = 0.0
-        val personSharedExpenses = mutableListOf<String>()
-        sharedExpenses.forEach { expense ->
-            if (expense.participants.contains(person.id) && expense.participants.isNotEmpty()) {
-                val expenseAmount = expense.amount.toDoubleOrNull() ?: 0.0
-                val share = expenseAmount / expense.participants.size
-                sharedExpensesTotal += share
-                if (share > 0) {
-                    personSharedExpenses.add("${expense.name.ifEmpty { "Общий расход" }}: ${String.format("%.2f", share)}₸")
-                }
-            }
-        }
-        
-        val subtotal = personalAmount + sharedExpensesTotal
-        val serviceChargeAmount = subtotal * serviceCharge / 100.0
-        val total = subtotal + serviceChargeAmount
-        
-        val personName = person.name.ifEmpty { "Человек ${people.indexOf(person) + 1}" }
-        sb.append("\n${personName} -- ${String.format("%.2f", total)}₸\n")
-        
-        if (personalAmount > 0) {
-            sb.append("  Заказ: ${String.format("%.2f", personalAmount)}₸\n")
-        }
-        
-        if (personSharedExpenses.isNotEmpty()) {
-            personSharedExpenses.forEach { expense ->
-                sb.append("  $expense\n")
-            }
-        }
-        
-        if (serviceChargeAmount > 0) {
-            sb.append("  Обслуживание: ${String.format("%.2f", serviceChargeAmount)}₸\n")
-        }
-    }
-    
-    if (totalBillAmount.isNotEmpty() && people.isNotEmpty()) {
-        val totalPeopleAmounts = people.sumOf { person ->
-            val personalAmount = person.personalAmount.toDoubleOrNull() ?: 0.0
-            
-            var sharedExpensesTotal = 0.0
-            sharedExpenses.forEach { expense ->
-                if (expense.participants.contains(person.id) && expense.participants.isNotEmpty()) {
-                    val expenseAmount = expense.amount.toDoubleOrNull() ?: 0.0
-                    sharedExpensesTotal += expenseAmount / expense.participants.size
-                }
-            }
-            
-            val subtotal = personalAmount + sharedExpensesTotal
-            val serviceChargeAmount = subtotal * serviceCharge / 100.0
-            subtotal + serviceChargeAmount
-        }
-        
-        val remainingAmount = totalBillValue - totalPeopleAmounts
-        if (remainingAmount != 0.0) {
-            sb.append("\n📊 Оставшаяся сумма: ${String.format("%.2f", remainingAmount)}₸\n")
-        }
-    }
-    
-    return sb.toString()
-}
 
-@Preview(showBackground = true, showSystemUi = true)
-@Composable
-fun BillSplitterScreenPreview() {
-    HackathonProjectTheme {
-        BillSplitterScreen()
+    people.forEachIndexed { index, person ->
+        val breakdown = BillCalculator.breakdown(person, sharedExpenses, serviceCharge)
+        sb.append("\n${person.displayName(index)} -- ${formatMoney(breakdown.total)}₸\n")
+        if (breakdown.personalAmount > 0) {
+            sb.append("  Заказ: ${formatMoney(breakdown.personalAmount)}₸\n")
+        }
+        if (breakdown.sharedAmount > 0) {
+            sb.append("  Общие расходы: ${formatMoney(breakdown.sharedAmount)}₸\n")
+        }
+        if (breakdown.serviceChargeAmount > 0) {
+            sb.append("  Обслуживание: ${formatMoney(breakdown.serviceChargeAmount)}₸\n")
+        }
     }
+
+    if (totalBillAmount.isNotEmpty() && people.isNotEmpty()) {
+        val totalPeopleAmounts = BillCalculator.grandTotal(people, sharedExpenses, serviceCharge)
+        val remainingAmount = totalBillValue - totalPeopleAmounts
+        if (abs(remainingAmount) > 0.01) {
+            sb.append("\n📊 Оставшаяся сумма: ${formatMoney(remainingAmount)}₸\n")
+        }
+    }
+
+    return sb.toString()
 }
