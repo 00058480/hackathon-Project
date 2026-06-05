@@ -133,10 +133,22 @@ class BillSplitterViewModel(
         it.copy(sharedExpenses = it.sharedExpenses + SharedExpense(nextExpenseId++, "", "", emptySet()))
     }
 
-    /** Adds one unit of a scanned item as a shared expense, expanded so participants can be chosen. */
-    fun addSharedExpenseFromScanned(scannedItemId: Int) {
+    /**
+     * Adds [units] of a scanned item as a SINGLE shared expense (e.g. 5 teas in one line),
+     * expanded so participants can be chosen.
+     */
+    fun addSharedExpenseFromScanned(scannedItemId: Int, units: Int) {
         val scanned = _uiState.value.scannedItems.firstOrNull { it.id == scannedItemId } ?: return
-        val expense = SharedExpense(nextExpenseId++, scanned.name, scanned.unitPrice.toString(), emptySet(), scanned.id)
+        val count = units.coerceAtLeast(1)
+        val amount = scanned.unitPrice * count
+        val expense = SharedExpense(
+            id = nextExpenseId++,
+            name = scanned.name,
+            amount = amount.toString(),
+            participants = emptySet(),
+            sourceItemId = scanned.id,
+            sourceUnits = count
+        )
         _uiState.update {
             it.copy(
                 sharedExpenses = it.sharedExpenses + expense,

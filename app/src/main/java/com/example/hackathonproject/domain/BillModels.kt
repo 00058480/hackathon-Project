@@ -30,8 +30,10 @@ data class SharedExpense(
     val name: String,
     val amount: String,
     val participants: Set<Int>,
-    /** The [ScannedItem] this came from, so a unit can be returned to the pool when removed. */
-    val sourceItemId: Int? = null
+    /** The [ScannedItem] this came from, so units can be returned to the pool when removed. */
+    val sourceItemId: Int? = null,
+    /** How many pool units this expense represents (e.g. 5 teas in one shared line). */
+    val sourceUnits: Int = 1
 )
 
 /** Per-person money breakdown for a bill. */
@@ -48,7 +50,7 @@ fun ScannedItem.remainingQuantity(
     sharedExpenses: List<SharedExpense>
 ): Int {
     val usedByPeople = people.sumOf { person -> person.items.count { it.sourceItemId == id } }
-    val usedByShared = sharedExpenses.count { it.sourceItemId == id }
+    val usedByShared = sharedExpenses.filter { it.sourceItemId == id }.sumOf { it.sourceUnits }
     return quantity - usedByPeople - usedByShared
 }
 

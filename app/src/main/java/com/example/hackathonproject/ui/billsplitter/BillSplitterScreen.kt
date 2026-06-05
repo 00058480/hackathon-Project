@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -24,6 +25,7 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
@@ -43,6 +45,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -51,6 +54,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -167,7 +171,8 @@ fun BillSplitterScreen(
             scannedItems = state.scannedItems,
             people = state.people,
             sharedExpenses = state.sharedExpenses,
-            onPick = { viewModel.addScannedItemToPerson(pickerPersonId, it.id) },
+            allowMultiple = false,
+            onPick = { item, _ -> viewModel.addScannedItemToPerson(pickerPersonId, item.id) },
             onAddManual = {
                 viewModel.addPersonItem(pickerPersonId)
                 itemPickerPersonId = null
@@ -181,7 +186,8 @@ fun BillSplitterScreen(
             scannedItems = state.scannedItems,
             people = state.people,
             sharedExpenses = state.sharedExpenses,
-            onPick = { viewModel.addSharedExpenseFromScanned(it.id) },
+            allowMultiple = true,
+            onPick = { item, count -> viewModel.addSharedExpenseFromScanned(item.id, count) },
             onAddManual = {
                 viewModel.addSharedExpense()
                 showSharedPicker = false
@@ -768,10 +774,13 @@ private fun ScannedItemPickerSheet(
     scannedItems: List<ScannedItem>,
     people: List<Person>,
     sharedExpenses: List<SharedExpense>,
-    onPick: (ScannedItem) -> Unit,
+    allowMultiple: Boolean,
+    onPick: (ScannedItem, Int) -> Unit,
     onAddManual: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    val counts = remember { mutableStateMapOf<Int, Int>() }
+
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
@@ -792,27 +801,68 @@ private fun ScannedItemPickerSheet(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = 280.dp)
+                        .heightIn(max = 320.dp)
                         .verticalScroll(rememberScrollState())
                 ) {
                     available.forEach { item ->
                         val remaining = item.remainingQuantity(people, sharedExpenses)
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onPick(item) }
-                                .padding(vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(text = item.name, fontSize = 16.sp)
+                        if (allowMultiple) {
+                            val count = (counts[item.id] ?: remaining).coerceIn(1, remaining)
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(text = item.name, fontSize = 16.sp)
+                                    Text(
+                                        text = "${item.unitPrice}₸/шт · осталось $remaining",
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                IconButton(
+                                    onClick = { counts[item.id] = (count - 1).coerceAtLeast(1) },
+                                    enabled = count > 1,
+                                    modifier = Modifier.size(36.dp)
+                                ) { Icon(Icons.Default.Remove, contentDescription = "Меньше") }
                                 Text(
-                                    text = "осталось $remaining из ${item.quantity}",
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    text = "$count",
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.widthIn(min = 22.dp)
                                 )
+                                IconButton(
+                                    onClick = { counts[item.id] = (count + 1).coerceAtMost(remaining) },
+                                    enabled = count < remaining,
+                                    modifier = Modifier.size(36.dp)
+                                ) { Icon(Icons.Default.Add, contentDescription = "Больше") }
+                                Spacer(Modifier.width(4.dp))
+                                FilledTonalButton(onClick = {
+                                    onPick(item, count)
+                                    counts.remove(item.id)
+                                }) {
+                                    Text("${item.unitPrice * count}₸")
+                                }
                             }
-                            Text(text = "${item.unitPrice}₸", fontWeight = FontWeight.Medium)
+                        } else {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onPick(item, 1) }
+                                    .padding(vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(text = item.name, fontSize = 16.sp)
+                                    Text(
+                                        text = "осталось $remaining из ${item.quantity}",
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Text(text = "${item.unitPrice}₸", fontWeight = FontWeight.Medium)
+                            }
                         }
                     }
                 }
