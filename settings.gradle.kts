@@ -20,6 +20,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Hackathon Project"
+rootProject.name = "Bill devider"
 include(":app")
  
